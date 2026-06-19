@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Maltese Garden Defense</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="game-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">MGD</span>
+          <div>
+            <p class="kicker">Village lane defense</p>
+            <h1>Maltese Garden Defense</h1>
+          </div>
+        </div>
+
+        <div class="hud" aria-live="polite">
+          <div class="hud-chip">
+            <span class="hud-label">Harbor Light</span>
+            <strong id="resourceValue">0</strong>
+          </div>
+          <div class="hud-chip">
+            <span class="hud-label">Garden Gates</span>
+            <strong id="livesValue">3</strong>
+          </div>
+          <div class="wave-meter" aria-label="Wave progress">
+            <span id="waveLabel">Wave 0/7</span>
+            <span class="wave-track"><span id="waveFill"></span></span>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="soundButton" class="icon-button" type="button" aria-label="Mute sound" title="Mute sound">♪</button>
+          <button id="pauseButton" class="icon-button" type="button" aria-label="Pause" title="Pause">II</button>
+          <button id="restartButton" class="icon-button" type="button" aria-label="Restart" title="Restart">↻</button>
+        </div>
+      </header>
+
+      <section class="strategy-bar" aria-label="Wave strategy">
+        <div class="difficulty-picker" aria-label="Difficulty">
+          <span class="picker-label">Difficulty</span>
+          <button class="difficulty-button" type="button" data-difficulty="chill">Chill</button>
+          <button class="difficulty-button" type="button" data-difficulty="festa">Festa</button>
+          <button class="difficulty-button" type="button" data-difficulty="siege">Siege</button>
+        </div>
+        <div id="wavePreview" class="wave-preview" aria-live="polite"></div>
+      </section>
+
+      <section id="unitDock" class="unit-dock" aria-label="Defenders"></section>
+
+      <section class="arena-wrap" aria-label="Game board">
+        <canvas id="gameCanvas" width="1120" height="640"></canvas>
+        <div id="overlay" class="overlay is-visible">
+          <div class="overlay-panel">
+            <p class="kicker">First prototype</p>
+            <h2>Maltese Garden Defense</h2>
+            <p id="overlayMessage">
+              Hold the village garden through seven waves of tourist chaos, folklore shadows, and limestone trouble.
+            </p>
+            <button id="startButton" class="primary-button" type="button">Start the Festa</button>
+          </div>
+        </div>
+      </section>
+
+      <footer class="game-foot">
+        <span id="hintText">Pick a defender, then place it on an open limestone tile.</span>
+        <span id="waveCallout"></span>
+      </footer>
+    </main>
+
+    <script src="game.js"></script>
+  </body>
+</html>
