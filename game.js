@@ -508,9 +508,9 @@ const DEFENDERS = {
     short: "BG",
     color: "#31a6d9",
     sprite: "dog_blue_base",
-    spriteWidth: 108,
-    spriteHeight: 78,
-    spriteOffsetX: 16,
+    spriteWidth: 96,
+    spriteHeight: 70,
+    spriteOffsetX: 8,
     cost: 110,
     cooldown: 5.2,
     health: 170,
@@ -519,41 +519,41 @@ const DEFENDERS = {
     projectileSpeed: 410,
     projectile: "bone",
     projectileScale: 0.78,
-    muzzleX: 42,
-    muzzleY: -16,
+    muzzleX: 38,
+    muzzleY: -15,
     shots: 1,
     description: "Upgrades into triple bones",
     upgrades: [
       {
         name: "Sharper Bones",
         sprite: "dog_blue_upgrade1",
-        spriteWidth: 112,
-        spriteHeight: 66,
-        spriteOffsetX: 18,
+        spriteWidth: 100,
+        spriteHeight: 60,
+        spriteOffsetX: 12,
         cost: 85,
         healthBoost: 25,
         fireRate: 0.95,
         damage: 22,
         projectileSpeed: 430,
         projectileScale: 1.05,
-        muzzleX: 44,
-        muzzleY: -15,
+        muzzleX: 39,
+        muzzleY: -14,
         shots: 1,
       },
       {
         name: "Ultra Bones",
         sprite: "dog_blue_ultra",
-        spriteWidth: 130,
-        spriteHeight: 78,
-        spriteOffsetX: 24,
+        spriteWidth: 112,
+        spriteHeight: 68,
+        spriteOffsetX: 14,
         cost: 150,
         healthBoost: 35,
         fireRate: 1.18,
         damage: 14,
         projectileSpeed: 440,
         projectileScale: 1.32,
-        muzzleX: 50,
-        muzzleY: -15,
+        muzzleX: 42,
+        muzzleY: -13,
         shots: 3,
         shotSpread: 17,
       },
@@ -3104,7 +3104,7 @@ function drawEntities() {
     ...state.defenders.map((item) => ({ layer: item.row * 10 + 3, item, kind: "defender" })),
     ...state.enemies.map((item) => ({ layer: item.row * 10 + 6, item, kind: "enemy" })),
     ...state.deathEffects.map((item) => ({ layer: item.row * 10 + 7, item, kind: "death" })),
-  ].sort((a, b) => a.layer - b.layer || a.item.y - b.item.y);
+  ].sort((a, b) => a.layer - b.layer || a.item.y - b.item.y || a.item.x - b.item.x);
 
   drawables.forEach((drawable) => {
     if (drawable.kind === "defender") {
@@ -3318,6 +3318,22 @@ function getSpriteMask(spriteKey) {
   }
 
   const raw = pixels.data;
+  let edgePixels = 0;
+  let transparentEdgePixels = 0;
+  const countEdgePixel = (x, y) => {
+    const offset = (y * width + x) * 4;
+    edgePixels += 1;
+    if (raw[offset + 3] <= 12) transparentEdgePixels += 1;
+  };
+  for (let x = 0; x < width; x += 1) {
+    countEdgePixel(x, 0);
+    countEdgePixel(x, height - 1);
+  }
+  for (let y = 1; y < height - 1; y += 1) {
+    countEdgePixel(0, y);
+    countEdgePixel(width - 1, y);
+  }
+  const hasTransparentCutout = transparentEdgePixels / Math.max(1, edgePixels) > 0.08;
   const background = new Uint8Array(width * height);
   const seen = new Uint8Array(width * height);
   const stack = [];
@@ -3327,7 +3343,11 @@ function getSpriteMask(spriteKey) {
     const alpha = raw[offset + 3];
     return (
       alpha <= 12 ||
-      (alpha > 12 && raw[offset] > 238 && raw[offset + 1] > 238 && raw[offset + 2] > 230)
+      (!hasTransparentCutout &&
+        alpha > 12 &&
+        raw[offset] > 238 &&
+        raw[offset + 1] > 238 &&
+        raw[offset + 2] > 230)
     );
   };
   const seedBackground = (x, y) => {
