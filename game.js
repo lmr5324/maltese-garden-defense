@@ -15,6 +15,7 @@ const waveCallout = document.getElementById("waveCallout");
 const overlay = document.getElementById("overlay");
 const overlayMessage = document.getElementById("overlayMessage");
 const startButton = document.getElementById("startButton");
+const shovelButton = document.getElementById("shovelButton");
 const soundButton = document.getElementById("soundButton");
 const pauseButton = document.getElementById("pauseButton");
 const restartButton = document.getElementById("restartButton");
@@ -241,6 +242,8 @@ function playSound(name, options = {}) {
       resource: 0.08,
       shoot: 0.055,
       shatter: 0.16,
+      sell: 0.12,
+      ultra: 0.45,
     }[name] ||
       0.025);
   if (!options.force && !canPlaySound(name, minGap)) return;
@@ -280,6 +283,18 @@ function playSound(name, options = {}) {
       tone(520, 0.07, { type: "triangle", gain: 0.042 });
       tone(760, 0.08, { type: "sine", gain: 0.036, delay: 0.06 });
       tone(1040, 0.12, { type: "sine", gain: 0.03, delay: 0.13 });
+      break;
+    case "ultra":
+      tone(520, 0.08, { type: "triangle", gain: 0.05 });
+      tone(760, 0.1, { type: "sine", gain: 0.044, delay: 0.055 });
+      tone(1040, 0.12, { type: "sine", gain: 0.04, delay: 0.13 });
+      tone(1320, 0.16, { type: "triangle", gain: 0.032, delay: 0.22 });
+      noise(0.14, { gain: 0.025, filter: 2600, filterType: "highpass", delay: 0.09 });
+      break;
+    case "sell":
+      sweep(420, 260, 0.09, { type: "triangle", gain: 0.042 });
+      tone(680, 0.055, { type: "sine", gain: 0.026, delay: 0.08 });
+      noise(0.07, { gain: 0.02, filter: 800, filterType: "bandpass" });
       break;
     case "dogRoar": {
       const power = options.power || 1;
@@ -1250,6 +1265,7 @@ function newState() {
     resources: difficulty.startingResources,
     lives: difficulty.lives,
     selected: null,
+    toolMode: null,
     defenders: [],
     enemies: [],
     deathEffects: [],
@@ -1279,6 +1295,7 @@ function resetGame() {
     `${getDifficulty().name} route: hold the village garden through seven waves of tourist chaos, folklore shadows, and limestone trouble.`;
   startButton.textContent = "Start the Festa";
   pauseButton.textContent = "II";
+  updateToolControls();
   updateSoundButton();
   updateDifficultyControls();
   updateWavePreview(true);
@@ -1298,6 +1315,7 @@ function startGame() {
   startButton.textContent = "Start the Festa";
   playSound("start", { force: true });
   updateDifficultyControls();
+  updateToolControls();
   updateWavePreview(true);
   updateHud();
   updateCards();
@@ -1311,6 +1329,7 @@ function pauseGame() {
     overlayMessage.textContent = "The garden is holding its breath. Ready when you are.";
     startButton.textContent = "Resume";
     playSound("pause", { force: true });
+    updateToolControls();
     return;
   }
 
@@ -1319,6 +1338,7 @@ function pauseGame() {
     pauseButton.textContent = "II";
     overlay.classList.remove("is-visible");
     playSound("resume", { force: true });
+    updateToolControls();
   }
 }
 
@@ -1332,6 +1352,7 @@ function showResult(won) {
   pauseButton.textContent = "II";
   playSound(won ? "win" : "lose", { minGap: 1.0 });
   updateDifficultyControls();
+  updateToolControls();
   updateWavePreview(true);
 }
 
@@ -1385,9 +1406,29 @@ function selectDefender(type) {
   if (state.status !== "playing") return;
   const data = DEFENDERS[type];
   if (state.resources < data.cost || state.cooldowns[type] > 0) return;
+  state.toolMode = null;
   state.selected = state.selected === type ? null : type;
   playSound("select");
+  updateToolControls();
   updateCards();
+}
+
+function toggleShovel() {
+  if (state.status !== "playing") return;
+  state.selected = null;
+  state.toolMode = state.toolMode === "shovel" ? null : "shovel";
+  playSound("select");
+  updateToolControls();
+  updateCards();
+  updateHud();
+}
+
+function updateToolControls() {
+  if (!shovelButton || !state) return;
+  const active = state.status === "playing" && state.toolMode === "shovel";
+  shovelButton.disabled = state.status !== "playing";
+  shovelButton.classList.toggle("is-active", active);
+  shovelButton.setAttribute("aria-pressed", active ? "true" : "false");
 }
 
 function updateCards() {
@@ -1406,6 +1447,8 @@ function updateCards() {
     button.classList.toggle("is-selected", state.selected === type);
     button.style.setProperty("--cooldown", `${cooldownPct}%`);
   });
+
+  updateToolControls();
 }
 
 function updateHud() {
@@ -1428,10 +1471,12 @@ function updateHud() {
   waveFill.style.width = `${Math.round(progress * 100)}%`;
 
   const selectedData = state.selected ? DEFENDERS[state.selected] : null;
-  const hoveredDefender = !selectedData ? getDefenderAtTile(state.hoverTile) : null;
+  const hoveredDefender = !selectedData && state.toolMode !== "shovel" ? getDefenderAtTile(state.hoverTile) : null;
   const upgradeHint = state.status === "playing" ? getUpgradeHint(hoveredDefender) : "";
   if (state.status === "playing" && selectedData) {
     hintText.textContent = `Place ${selectedData.name} on an open limestone tile.`;
+  } else if (state.status === "playing" && state.toolMode === "shovel") {
+    hintText.textContent = "Tap a defender to shovel it out and recover some Harbor Light.";
   } else if (upgradeHint) {
     hintText.textContent = upgradeHint;
   } else if (state.status === "playing") {
@@ -1510,6 +1555,57 @@ function getNextUpgrade(defender) {
   return base.upgrades[defender.upgradeStage || 0] || null;
 }
 
+function getDefenderInvestment(defender) {
+  const base = DEFENDERS[defender.type];
+  if (!base) return 0;
+  const upgrades = base.upgrades || [];
+  const stage = Math.max(0, defender.upgradeStage || 0);
+  return upgrades.slice(0, stage).reduce((total, upgrade) => total + (upgrade.cost || 0), base.cost || 0);
+}
+
+function getSellRefund(defender) {
+  const investment = getDefenderInvestment(defender);
+  if (!investment) return 0;
+  return Math.max(10, Math.round((investment * 0.38) / 5) * 5);
+}
+
+function shovelHoveredDefender() {
+  if (state.status !== "playing" || state.toolMode !== "shovel" || !state.hoverTile) return false;
+  const defender = getDefenderAtTile(state.hoverTile);
+  if (!defender) {
+    playSound("select");
+    return false;
+  }
+
+  const refund = getSellRefund(defender);
+  state.resources += refund;
+  burst(defender.x, defender.y - 4, "#d9c07b", 14, 64);
+  sparkleBurst(defender.x, defender.y - 24, colors.gold, 6);
+  popRing(defender.x, defender.y, colors.bronze, 58, 0.38);
+  floatText(defender.x, defender.y - 44, `+${refund}`, colors.gold);
+  removeDefender(defender, { quiet: true });
+  state.toolMode = null;
+  playSound("sell", { force: true });
+  updateToolControls();
+  updateCards();
+  updateHud();
+  return true;
+}
+
+function ultraUpgradeBurst(defender) {
+  defender.ultraFlash = 1.15;
+  state.shake = Math.max(state.shake, 4);
+  burst(defender.x, defender.y - 12, "#8edff0", 18, 82);
+  burst(defender.x, defender.y - 18, colors.gold, 18, 92);
+  sparkleBurst(defender.x, defender.y - 42, "#fff8e8", 18);
+  sparkleBurst(defender.x + 18, defender.y - 26, "#8edff0", 10);
+  confettiBurst(defender.x, defender.y - 54, 12);
+  popRing(defender.x, defender.y - 12, "#31a6d9", 82, 0.58);
+  popRing(defender.x, defender.y - 14, colors.gold, 112, 0.68);
+  floatText(defender.x, defender.y - 68, "ULTRA!", colors.gold);
+  playSound("ultra", { force: true });
+}
+
 function upgradeHoveredDefender() {
   if (state.status !== "playing" || state.selected || !state.hoverTile) return false;
   const defender = getDefenderAtTile(state.hoverTile);
@@ -1524,6 +1620,7 @@ function upgradeHoveredDefender() {
 
   state.resources -= nextUpgrade.cost;
   defender.upgradeStage = (defender.upgradeStage || 0) + 1;
+  const finalUpgrade = !getNextUpgrade(defender);
   defender.maxHp += nextUpgrade.healthBoost || 0;
   defender.hp = Math.min(defender.maxHp, defender.hp + (nextUpgrade.healthBoost || 0));
   defender.reload = Math.min(defender.reload, 0.18);
@@ -1531,13 +1628,12 @@ function upgradeHoveredDefender() {
   burst(defender.x, defender.y - 6, nextUpgrade.color || DEFENDERS[defender.type].color, 16, 58);
   sparkleBurst(defender.x, defender.y - 34, "#8edff0", 9);
   popRing(defender.x, defender.y - 8, "#31a6d9", 66, 0.48);
-  floatText(
-    defender.x,
-    defender.y - 48,
-    getNextUpgrade(defender) ? "UPGRADE" : "ULTRA",
-    "#31a6d9",
-  );
-  playSound("upgrade");
+  if (finalUpgrade) {
+    ultraUpgradeBurst(defender);
+  } else {
+    floatText(defender.x, defender.y - 48, "UPGRADE", "#31a6d9");
+    playSound("upgrade");
+  }
   updateCards();
   return true;
 }
@@ -1755,6 +1851,7 @@ function updateDefenders(dt) {
     const data = getDefenderStats(defender);
     defender.flash = Math.max(0, defender.flash - dt);
     defender.damageFlash = Math.max(0, (defender.damageFlash || 0) - dt);
+    defender.ultraFlash = Math.max(0, (defender.ultraFlash || 0) - dt);
 
     if (data.generator) {
       defender.tick -= dt;
@@ -3035,6 +3132,22 @@ function drawHover() {
   const x = board.x + col * cellW;
   const y = board.y + row * cellH;
 
+  if (state.toolMode === "shovel") {
+    const defender = getDefenderAtTile(state.hoverTile);
+    ctx.save();
+    ctx.fillStyle = defender ? "rgba(212, 67, 58, 0.22)" : "rgba(185, 120, 47, 0.1)";
+    ctx.strokeStyle = defender ? colors.festa : "rgba(185, 120, 47, 0.5)";
+    ctx.lineWidth = defender ? 3 : 2;
+    roundRect(x + 5, y + 5, cellW - 10, cellH - 10, 10);
+    ctx.fill();
+    ctx.stroke();
+    if (defender) {
+      drawShovelGlyph(x + cellW - 20, y + 22, colors.festa);
+    }
+    ctx.restore();
+    return;
+  }
+
   if (!state.selected) {
     const defender = getDefenderAtTile(state.hoverTile);
     const nextUpgrade = defender ? getNextUpgrade(defender) : null;
@@ -3095,6 +3208,37 @@ function popUpgradeGlyph(x, y, color) {
   ctx.lineTo(-12, 4);
   ctx.closePath();
   ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawShovelGlyph(x, y, color) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(-0.72);
+  ctx.strokeStyle = "#fff8e8";
+  ctx.fillStyle = color;
+  ctx.lineWidth = 4;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(0, -17);
+  ctx.lineTo(0, 9);
+  ctx.stroke();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(0, -17);
+  ctx.lineTo(0, 8);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-8, 8);
+  ctx.quadraticCurveTo(0, 18, 8, 8);
+  ctx.lineTo(5, 2);
+  ctx.lineTo(-5, 2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "#fff8e8";
+  ctx.lineWidth = 2.2;
   ctx.stroke();
   ctx.restore();
 }
@@ -3660,6 +3804,24 @@ function drawDefender(defender) {
     ctx.beginPath();
     ctx.arc(0, -12, 34 * pulse, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
+  }
+
+  if (defender.ultraFlash > 0) {
+    const power = Math.min(1, defender.ultraFlash / 1.15);
+    const pulse = 0.5 + Math.sin(state.time * 13 + defender.x) * 0.5;
+    ctx.save();
+    ctx.globalAlpha = 0.18 + power * 0.26;
+    ctx.fillStyle = "#8edff0";
+    ctx.beginPath();
+    ctx.ellipse(6, -8, 42 + pulse * 9, 34 + pulse * 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 0.35 + power * 0.28;
+    ctx.strokeStyle = colors.gold;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.ellipse(4, -8, 52 + (1 - power) * 34, 39 + (1 - power) * 18, 0, 0, Math.PI * 2);
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -5158,7 +5320,7 @@ canvas.addEventListener("pointerleave", () => {
 canvas.addEventListener("click", (event) => {
   state.pointer = getPointer(event);
   state.hoverTile = tileFromPoint(state.pointer);
-  if (!placeSelected()) {
+  if (!shovelHoveredDefender() && !placeSelected()) {
     upgradeHoveredDefender();
   }
 });
@@ -5172,6 +5334,7 @@ startButton.addEventListener("click", () => {
 });
 
 pauseButton.addEventListener("click", pauseGame);
+shovelButton.addEventListener("click", toggleShovel);
 soundButton.addEventListener("click", () => {
   setSoundMuted(!sound.muted);
   if (!sound.muted) {
