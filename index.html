@@ -43,11 +43,18 @@
       </header>
 
       <section class="strategy-bar" aria-label="Wave strategy">
-        <div class="difficulty-picker" aria-label="Difficulty">
-          <span class="picker-label">Difficulty</span>
-          <button class="difficulty-button" type="button" data-difficulty="chill">Chill</button>
-          <button class="difficulty-button" type="button" data-difficulty="festa">Festa</button>
-          <button class="difficulty-button" type="button" data-difficulty="siege">Siege</button>
+        <div class="setup-pickers">
+          <div class="difficulty-picker" aria-label="Difficulty">
+            <span class="picker-label">Difficulty</span>
+            <button class="difficulty-button" type="button" data-difficulty="chill">Chill</button>
+            <button class="difficulty-button" type="button" data-difficulty="festa">Festa</button>
+            <button class="difficulty-button" type="button" data-difficulty="siege">Siege</button>
+          </div>
+          <div class="level-picker" aria-label="Level">
+            <span class="picker-label">Level</span>
+            <button class="level-button" type="button" data-level="garden">Garden</button>
+            <button class="level-button" type="button" data-level="lagoon">Dragon Boat Lagoon</button>
+          </div>
         </div>
         <div id="wavePreview" class="wave-preview" aria-live="polite"></div>
       </section>
@@ -74,6 +81,6 @@
       </footer>
     </main>
 
-    <script src="game.js?v=shovel-shine-20260619"></script>
+    <script src="game.js?v=dragon-boat-lagoon-20260619"></script>
   </body>
 </html>

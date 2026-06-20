@@ -10,6 +10,7 @@ const waveFill = document.getElementById("waveFill");
 const unitDock = document.getElementById("unitDock");
 const wavePreview = document.getElementById("wavePreview");
 const difficultyButtons = Array.from(document.querySelectorAll("[data-difficulty]"));
+const levelButtons = Array.from(document.querySelectorAll("[data-level]"));
 const hintText = document.getElementById("hintText");
 const waveCallout = document.getElementById("waveCallout");
 const overlay = document.getElementById("overlay");
@@ -43,6 +44,29 @@ const colors = {
   bronze: "#b9782f",
   health: "#55b567",
   damage: "#ce3e36",
+};
+
+const LEVELS = {
+  garden: {
+    name: "Village Garden",
+    short: "Garden",
+    tag: "level 1",
+    waterRows: [],
+    overlay:
+      "Hold the village garden through seven waves of tourist chaos, folklore shadows, and limestone trouble.",
+    readyHint: "Pick a defender, then place it on an open limestone tile.",
+    previewNote: "",
+  },
+  lagoon: {
+    name: "Dragon Boat Lagoon",
+    short: "Lagoon",
+    tag: "level 2",
+    waterRows: [1, 3],
+    overlay:
+      "Level 2: two lagoon lanes cut through the garden. Use Dragon Boat Platforms before placing defenders on water.",
+    readyHint: "Water lanes need Dragon Boat Platforms before defenders can stand there.",
+    previewNote: "Dragon boats carry defenders across the water lanes.",
+  },
 };
 
 const DIFFICULTIES = {
@@ -449,6 +473,18 @@ const SPRITE_FILES = {
 };
 
 const DEFENDERS = {
+  dragonboat: {
+    name: "Dragon Boat Platform",
+    short: "DB",
+    color: "#d4433a",
+    cardGlyph: "dragonboat",
+    levelOnly: "lagoon",
+    platform: true,
+    cost: 35,
+    cooldown: 2.4,
+    health: 220,
+    description: "Carries defenders on water",
+  },
   lantern: {
     name: "Luzzu Lantern",
     short: "LL",
@@ -1015,6 +1051,10 @@ if (previewParams.get("shadow") === "early") {
 }
 
 const requestedDifficulty = previewParams.get("difficulty");
+const requestedLevel =
+  previewParams.get("scene") === "lagoon" || previewParams.get("level") === "2"
+    ? "lagoon"
+    : previewParams.get("level");
 const cardElements = new Map();
 const decoration = createDecoration();
 const sprites = loadSprites();
@@ -1024,6 +1064,8 @@ let state;
 let lastFrame = performance.now();
 let idSeed = 0;
 let selectedDifficulty = DIFFICULTIES[requestedDifficulty] ? requestedDifficulty : "festa";
+let selectedLevel = LEVELS[requestedLevel] ? requestedLevel : "garden";
+let cardTypes = [];
 let wavePreviewKey = "";
 
 function createDecoration() {
@@ -1176,6 +1218,69 @@ function canChangeDifficulty() {
   return !state || state.status === "ready" || state.status === "won" || state.status === "lost";
 }
 
+function getLevel() {
+  return LEVELS[selectedLevel] || LEVELS.garden;
+}
+
+function isLagoonLevel() {
+  return selectedLevel === "lagoon";
+}
+
+function isWaterRow(row) {
+  return getLevel().waterRows.includes(row);
+}
+
+function isWaterTile(tile) {
+  return Boolean(tile && isWaterRow(tile.row));
+}
+
+function isWaterY(y) {
+  if (!isLagoonLevel()) return false;
+  const row = Math.floor((y - board.y) / cellH);
+  return row >= 0 && row < ROWS && isWaterRow(row);
+}
+
+function isDefenderAvailableInLevel(type) {
+  const levelOnly = DEFENDERS[type]?.levelOnly;
+  return !levelOnly || levelOnly === selectedLevel;
+}
+
+function canChangeLevel() {
+  return canChangeDifficulty();
+}
+
+function updateLevelControls() {
+  const locked = !canChangeLevel();
+  levelButtons.forEach((button) => {
+    const active = button.dataset.level === selectedLevel;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+    button.disabled = locked;
+  });
+}
+
+function syncLevelUrl() {
+  if (!globalThis.history || !globalThis.location) return;
+  const params = new URLSearchParams(globalThis.location.search || "");
+  if (selectedLevel === "lagoon") {
+    params.set("level", "2");
+  } else {
+    params.delete("level");
+    if (params.get("scene") === "lagoon") params.delete("scene");
+  }
+  const query = params.toString();
+  globalThis.history.replaceState(null, "", `${globalThis.location.pathname}${query ? `?${query}` : ""}${globalThis.location.hash || ""}`);
+}
+
+function selectLevel(type) {
+  if (!LEVELS[type] || selectedLevel === type || !canChangeLevel()) return;
+  selectedLevel = type;
+  syncLevelUrl();
+  buildCards();
+  resetGame();
+  playSound("select");
+}
+
 function updateDifficultyControls() {
   const locked = !canChangeDifficulty();
   difficultyButtons.forEach((button) => {
@@ -1184,6 +1289,7 @@ function updateDifficultyControls() {
     button.setAttribute("aria-pressed", String(active));
     button.disabled = locked;
   });
+  updateLevelControls();
 }
 
 function selectDifficulty(type) {
@@ -1217,8 +1323,20 @@ function updateWavePreview(force = false) {
   const index = getPreviewWaveIndex();
   const wave = WAVES[index];
   const difficulty = getDifficulty();
+  const level = getLevel();
   const modeText = state.status === "playing" && state.waveIndex >= 0 ? "Current wave" : "Incoming wave";
-  const previewKey = `${state.status}:${state.waveIndex}:${index}:${selectedDifficulty}:${state.spawnCursor}:${state.completedWaves}:${state.nextWave}`;
+  const waveHint = wave.hint || wave.threat || "";
+  const hintCopy = level.previewNote ? `${level.previewNote} ${waveHint}` : waveHint;
+  const previewKey = [
+    state.status,
+    state.waveIndex,
+    index,
+    selectedDifficulty,
+    selectedLevel,
+    state.spawnCursor,
+    state.completedWaves,
+    state.nextWave,
+  ].join(":");
 
   if (!force && previewKey === wavePreviewKey) return;
   wavePreviewKey = previewKey;
@@ -1243,9 +1361,9 @@ function updateWavePreview(force = false) {
 
   wavePreview.innerHTML = `
     <div class="preview-copy">
-      <span class="preview-kicker">${modeText} · ${difficulty.name} · ${difficulty.tag}</span>
+      <span class="preview-kicker">${modeText} · ${level.short} · ${difficulty.name} · ${difficulty.tag}</span>
       <strong>Wave ${index + 1}: ${wave.title}</strong>
-      <small>${wave.hint || wave.threat || ""}</small>
+      <small>${hintCopy}</small>
     </div>
     <div class="preview-enemies">${enemyItems}</div>
   `;
@@ -1262,6 +1380,7 @@ function newState() {
     status: "ready",
     time: 0,
     difficulty: selectedDifficulty,
+    level: selectedLevel,
     resources: difficulty.startingResources,
     lives: difficulty.lives,
     selected: null,
@@ -1272,6 +1391,7 @@ function newState() {
     projectiles: [],
     particles: [],
     cooldowns,
+    platforms: new Map(),
     occupied: new Map(),
     pointer: null,
     hoverTile: null,
@@ -1288,16 +1408,17 @@ function newState() {
 }
 
 function resetGame() {
+  const level = getLevel();
   state = newState();
   wavePreviewKey = "";
   overlay.classList.add("is-visible");
-  overlayMessage.textContent =
-    `${getDifficulty().name} route: hold the village garden through seven waves of tourist chaos, folklore shadows, and limestone trouble.`;
+  overlayMessage.textContent = `${level.name} · ${getDifficulty().name} route: ${level.overlay}`;
   startButton.textContent = "Start the Festa";
   pauseButton.textContent = "II";
   updateToolControls();
   updateSoundButton();
   updateDifficultyControls();
+  updateLevelControls();
   updateWavePreview(true);
   updateHud();
   updateCards();
@@ -1315,6 +1436,7 @@ function startGame() {
   startButton.textContent = "Start the Festa";
   playSound("start", { force: true });
   updateDifficultyControls();
+  updateLevelControls();
   updateToolControls();
   updateWavePreview(true);
   updateHud();
@@ -1330,6 +1452,7 @@ function pauseGame() {
     startButton.textContent = "Resume";
     playSound("pause", { force: true });
     updateToolControls();
+    updateLevelControls();
     return;
   }
 
@@ -1339,6 +1462,7 @@ function pauseGame() {
     overlay.classList.remove("is-visible");
     playSound("resume", { force: true });
     updateToolControls();
+    updateLevelControls();
   }
 }
 
@@ -1352,6 +1476,7 @@ function showResult(won) {
   pauseButton.textContent = "II";
   playSound(won ? "win" : "lose", { minGap: 1.0 });
   updateDifficultyControls();
+  updateLevelControls();
   updateToolControls();
   updateWavePreview(true);
 }
@@ -1368,9 +1493,15 @@ function getUpgradeHint(defender) {
 
 function buildCards() {
   unitDock.innerHTML = "";
+  cardElements.clear();
+  cardTypes = Object.keys(DEFENDERS).filter(isDefenderAvailableInLevel);
 
-  Object.entries(DEFENDERS).forEach(([type, data], index) => {
+  cardTypes.forEach((type) => {
+    const data = DEFENDERS[type];
     const upgradeText = data.upgrades ? " · upgrades" : "";
+    const token = data.cardGlyph === "dragonboat"
+      ? `<span class="dragon-token" aria-hidden="true"></span>`
+      : `<img src="${SPRITE_FILES[data.sprite]}" alt="" />`;
     const button = document.createElement("button");
     button.className = "unit-card";
     button.type = "button";
@@ -1381,7 +1512,7 @@ function buildCards() {
     );
     button.innerHTML = `
       <span class="unit-token" style="--unit-color: ${data.color}">
-        <img src="${SPRITE_FILES[data.sprite]}" alt="" />
+        ${token}
       </span>
       <span class="unit-copy">
         <strong>${data.name}</strong>
@@ -1392,17 +1523,12 @@ function buildCards() {
     button.addEventListener("click", () => selectDefender(type));
     unitDock.appendChild(button);
     cardElements.set(type, button);
-
-    window.addEventListener("keydown", (event) => {
-      if (event.key === String(index + 1)) {
-        selectDefender(type);
-      }
-    });
   });
 }
 
 function selectDefender(type) {
   if (!DEFENDERS[type]) return;
+  if (!isDefenderAvailableInLevel(type)) return;
   if (state.status !== "playing") return;
   const data = DEFENDERS[type];
   if (state.resources < data.cost || state.cooldowns[type] > 0) return;
@@ -1471,16 +1597,23 @@ function updateHud() {
   waveFill.style.width = `${Math.round(progress * 100)}%`;
 
   const selectedData = state.selected ? DEFENDERS[state.selected] : null;
+  const placementInfo = selectedData && state.hoverTile ? getPlacementInfo(state.selected, state.hoverTile) : null;
   const hoveredDefender = !selectedData && state.toolMode !== "shovel" ? getDefenderAtTile(state.hoverTile) : null;
   const upgradeHint = state.status === "playing" ? getUpgradeHint(hoveredDefender) : "";
   if (state.status === "playing" && selectedData) {
-    hintText.textContent = `Place ${selectedData.name} on an open limestone tile.`;
+    if (placementInfo && !placementInfo.can && placementInfo.reason === "platform") {
+      hintText.textContent = "Water lane needs a Dragon Boat Platform first.";
+    } else if (selectedData.platform) {
+      hintText.textContent = "Place Dragon Boat Platforms on water lanes.";
+    } else {
+      hintText.textContent = `Place ${selectedData.name} on an open tile.`;
+    }
   } else if (state.status === "playing" && state.toolMode === "shovel") {
     hintText.textContent = "Tap a defender to shovel it out and recover some Harbor Light.";
   } else if (upgradeHint) {
     hintText.textContent = upgradeHint;
   } else if (state.status === "playing") {
-    hintText.textContent = "Pick a defender, then place it on an open limestone tile.";
+    hintText.textContent = getLevel().readyHint;
   } else if (state.status === "paused") {
     hintText.textContent = "Paused.";
   } else {
@@ -1541,6 +1674,39 @@ function getDefenderAtTile(tile) {
   return state.defenders.find((defender) => defender.id === id) || null;
 }
 
+function getPlatformAtTile(tile) {
+  if (!tile) return null;
+  return state.platforms.get(tileKey(tile.row, tile.col)) || null;
+}
+
+function getPlacementInfo(type, tile) {
+  const data = DEFENDERS[type];
+  if (!data || !tile) return { can: false, reason: "invalid" };
+
+  const key = tileKey(tile.row, tile.col);
+  const occupied = state.occupied.has(key);
+  const platform = state.platforms.get(key);
+  const water = isWaterTile(tile);
+
+  if (data.platform) {
+    if (!isLagoonLevel()) return { can: false, reason: "level" };
+    if (!water) return { can: false, reason: "water" };
+    if (platform || occupied) return { can: false, reason: "occupied" };
+    return { can: true, platform: null, water };
+  }
+
+  if (occupied) return { can: false, reason: "occupied" };
+  if (water && !platform) return { can: false, reason: "platform" };
+  return { can: true, platform, water };
+}
+
+function describePlacementBlock(reason) {
+  if (reason === "platform") return "BOAT FIRST";
+  if (reason === "water") return "WATER ONLY";
+  if (reason === "level") return "LEVEL 2";
+  return "OCCUPIED";
+}
+
 function getDefenderStats(defender) {
   const base = DEFENDERS[defender.type];
   if (!base) return {};
@@ -1569,10 +1735,32 @@ function getSellRefund(defender) {
   return Math.max(10, Math.round((investment * 0.38) / 5) * 5);
 }
 
+function getPlatformRefund(platform) {
+  const cost = DEFENDERS[platform.type]?.cost || 0;
+  if (!cost) return 0;
+  return Math.max(10, Math.round((cost * 0.38) / 5) * 5);
+}
+
 function shovelHoveredDefender() {
   if (state.status !== "playing" || state.toolMode !== "shovel" || !state.hoverTile) return false;
   const defender = getDefenderAtTile(state.hoverTile);
+  const platform = !defender ? getPlatformAtTile(state.hoverTile) : null;
   if (!defender) {
+    if (platform) {
+      const refund = getPlatformRefund(platform);
+      state.resources += refund;
+      state.platforms.delete(tileKey(platform.row, platform.col));
+      burst(platform.x, platform.y + 8, colors.gold, 12, 56);
+      sparkleBurst(platform.x, platform.y - 10, "#fff8e8", 5);
+      popRing(platform.x, platform.y + 8, colors.festa, 54, 0.38);
+      floatText(platform.x, platform.y - 34, `+${refund}`, colors.gold);
+      state.toolMode = null;
+      playSound("sell", { force: true });
+      updateToolControls();
+      updateCards();
+      updateHud();
+      return true;
+    }
     playSound("select");
     return false;
   }
@@ -1643,9 +1831,38 @@ function placeSelected() {
   const data = DEFENDERS[state.selected];
   const { row, col } = state.hoverTile;
   const key = tileKey(row, col);
+  const placement = getPlacementInfo(state.selected, state.hoverTile);
 
-  if (state.occupied.has(key)) return false;
+  if (!placement.can) {
+    const x = board.x + col * cellW + cellW / 2;
+    const y = board.y + row * cellH + cellH / 2;
+    floatText(x, y - 26, describePlacementBlock(placement.reason), placement.reason === "platform" ? colors.gold : colors.damage);
+    playSound("select");
+    return false;
+  }
   if (state.resources < data.cost || state.cooldowns[state.selected] > 0) return false;
+
+  if (data.platform) {
+    const platform = {
+      id: makeId("platform"),
+      type: state.selected,
+      row,
+      col,
+      x: board.x + col * cellW + cellW / 2,
+      y: board.y + row * cellH + cellH / 2 + 10,
+      bornAt: state.time,
+    };
+    state.platforms.set(key, platform);
+    state.resources -= data.cost;
+    state.cooldowns[state.selected] = data.cooldown;
+    burst(platform.x, platform.y + 6, colors.gold, 12, 54);
+    sparkleBurst(platform.x + 14, platform.y - 8, "#fff8e8", 5);
+    popRing(platform.x, platform.y + 6, data.color, 58, 0.4);
+    playSound("place");
+    state.selected = null;
+    updateCards();
+    return true;
+  }
 
   const defender = {
     id: makeId("defender"),
@@ -1664,6 +1881,7 @@ function placeSelected() {
     damageFlash: 0,
     crackStage: 0,
     upgradeStage: 0,
+    onPlatform: Boolean(placement.platform),
   };
 
   state.defenders.push(defender);
@@ -2717,6 +2935,7 @@ function draw() {
 
   drawBackdrop();
   drawBoard();
+  drawPlatforms();
   drawHover();
   drawProjectiles();
   drawEntities();
@@ -2966,6 +3185,11 @@ function drawLimestoneTexture() {
 }
 
 function drawLawnTile(x, y, row, col) {
+  if (isWaterRow(row)) {
+    drawWaterTile(x, y, row, col);
+    return;
+  }
+
   const isGarden = (row + col) % 2 === 0;
   const tileGradient = ctx.createLinearGradient(x, y, x, y + cellH);
   tileGradient.addColorStop(0, isGarden ? "#82bf69" : "#91cc75");
@@ -2991,8 +3215,36 @@ function drawLawnTile(x, y, row, col) {
   }
 }
 
+function drawWaterTile(x, y, row, col) {
+  const phase = state ? state.time * 0.9 + row * 0.7 + col * 0.45 : 0;
+  const tileGradient = ctx.createLinearGradient(x, y, x, y + cellH);
+  tileGradient.addColorStop(0, "#5fc7d8");
+  tileGradient.addColorStop(0.5, (row + col) % 2 === 0 ? "#2fa3bf" : "#3498b8");
+  tileGradient.addColorStop(1, "#176f8d");
+  ctx.fillStyle = tileGradient;
+  ctx.fillRect(x, y, cellW, cellH);
+
+  ctx.fillStyle = "rgba(255, 248, 232, 0.11)";
+  roundRect(x + 5, y + 5, cellW - 10, cellH - 10, 9);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(255, 248, 232, 0.42)";
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 2; i += 1) {
+    const rippleY = y + 22 + i * 28 + Math.sin(phase + i) * 3;
+    ctx.beginPath();
+    ctx.moveTo(x + 10, rippleY);
+    ctx.quadraticCurveTo(x + cellW * 0.42, rippleY - 8, x + cellW - 12, rippleY);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = "rgba(22, 104, 127, 0.16)";
+  ctx.fillRect(x, y + cellH - 8, cellW, 8);
+}
+
 function drawGardenTexture() {
   decoration.grassSpeckles.forEach((item) => {
+    if (isWaterY(item.y)) return;
     ctx.save();
     ctx.globalAlpha = item.a;
     ctx.fillStyle = item.light ? "#fff6cf" : "#263238";
@@ -3003,10 +3255,12 @@ function drawGardenTexture() {
   });
 
   decoration.grassTufts.forEach((tuft) => {
+    if (isWaterY(tuft.y)) return;
     drawGrassTuft(tuft.x, tuft.y, tuft.scale, tuft.lean, tuft.color, tuft.a);
   });
 
   decoration.flowers.forEach((flower) => {
+    if (isWaterY(flower.y)) return;
     drawTinyFlower(flower.x, flower.y, flower.scale, flower.color);
   });
 }
@@ -3128,20 +3382,21 @@ function drawHarborEntry() {
 function drawHover() {
   if (!state.hoverTile || state.status !== "playing") return;
   const { row, col } = state.hoverTile;
-  const key = tileKey(row, col);
   const x = board.x + col * cellW;
   const y = board.y + row * cellH;
 
   if (state.toolMode === "shovel") {
     const defender = getDefenderAtTile(state.hoverTile);
+    const platform = !defender ? getPlatformAtTile(state.hoverTile) : null;
+    const target = defender || platform;
     ctx.save();
-    ctx.fillStyle = defender ? "rgba(212, 67, 58, 0.22)" : "rgba(185, 120, 47, 0.1)";
-    ctx.strokeStyle = defender ? colors.festa : "rgba(185, 120, 47, 0.5)";
-    ctx.lineWidth = defender ? 3 : 2;
+    ctx.fillStyle = target ? "rgba(212, 67, 58, 0.22)" : "rgba(185, 120, 47, 0.1)";
+    ctx.strokeStyle = target ? colors.festa : "rgba(185, 120, 47, 0.5)";
+    ctx.lineWidth = target ? 3 : 2;
     roundRect(x + 5, y + 5, cellW - 10, cellH - 10, 10);
     ctx.fill();
     ctx.stroke();
-    if (defender) {
+    if (target) {
       drawShovelGlyph(x + cellW - 20, y + 22, colors.festa);
     }
     ctx.restore();
@@ -3167,8 +3422,9 @@ function drawHover() {
   }
 
   const data = DEFENDERS[state.selected];
+  const placement = getPlacementInfo(state.selected, state.hoverTile);
   const canPlace =
-    !state.occupied.has(key) && state.resources >= data.cost && state.cooldowns[state.selected] <= 0;
+    placement.can && state.resources >= data.cost && state.cooldowns[state.selected] <= 0;
 
   ctx.save();
   ctx.fillStyle = canPlace ? "rgba(31, 142, 184, 0.22)" : "rgba(206, 62, 54, 0.24)";
@@ -3178,17 +3434,29 @@ function drawHover() {
   ctx.fill();
   ctx.stroke();
   ctx.globalAlpha = 0.62;
-  drawDefender({
-    type: state.selected,
-    x: x + cellW / 2,
-    y: y + cellH / 2,
-    row,
-    col,
-    hp: data.health,
-    maxHp: data.health,
-    arm: data.armTime || 0,
-    flash: 0,
-  });
+  if (data.platform) {
+    drawDragonBoatPlatform({
+      type: state.selected,
+      x: x + cellW / 2,
+      y: y + cellH / 2 + 10,
+      row,
+      col,
+      bornAt: state.time,
+    }, { ghost: true });
+  } else {
+    drawDefender({
+      type: state.selected,
+      x: x + cellW / 2,
+      y: y + cellH / 2,
+      row,
+      col,
+      hp: data.health,
+      maxHp: data.health,
+      arm: data.armTime || 0,
+      flash: 0,
+      onPlatform: Boolean(placement.platform),
+    });
+  }
   ctx.restore();
 }
 
@@ -3240,6 +3508,128 @@ function drawShovelGlyph(x, y, color) {
   ctx.strokeStyle = "#fff8e8";
   ctx.lineWidth = 2.2;
   ctx.stroke();
+  ctx.restore();
+}
+
+function drawPlatforms() {
+  state.platforms.forEach((platform) => {
+    drawDragonBoatPlatform(platform);
+  });
+}
+
+function drawDragonBoatPlatform(platform, options = {}) {
+  const age = Math.max(0, state.time - (platform.bornAt ?? state.time));
+  const entrance = options.ghost ? 1 : age < 0.28 ? easeOutBack(age / 0.28) : 1;
+  const bob = Math.sin(state.time * 2.4 + platform.x * 0.03) * (options.ghost ? 0 : 2.2);
+  const alpha = options.alpha ?? (options.ghost ? 0.58 : 1);
+  const x = options.x ?? platform.x;
+  const y = options.y ?? platform.y;
+
+  ctx.save();
+  ctx.translate(x, y + bob);
+  ctx.scale(entrance, entrance);
+  ctx.globalAlpha *= alpha;
+
+  ctx.fillStyle = "rgba(16, 74, 92, 0.24)";
+  ctx.beginPath();
+  ctx.ellipse(0, 18, 46, 9, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(255, 248, 232, 0.56)";
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  ctx.moveTo(-48, 18);
+  ctx.quadraticCurveTo(-23, 25, 2, 18);
+  ctx.quadraticCurveTo(26, 10, 52, 17);
+  ctx.stroke();
+
+  ctx.fillStyle = "#c83f35";
+  ctx.strokeStyle = colors.ink;
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(-42, 8);
+  ctx.quadraticCurveTo(-30, 28, 3, 29);
+  ctx.quadraticCurveTo(36, 29, 49, 7);
+  ctx.lineTo(37, -8);
+  ctx.quadraticCurveTo(4, 2, -34, -8);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#2c9f98";
+  ctx.beginPath();
+  ctx.moveTo(-30, 13);
+  ctx.quadraticCurveTo(0, 24, 32, 12);
+  ctx.lineTo(39, 4);
+  ctx.quadraticCurveTo(2, 15, -37, 3);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "#f4b942";
+  roundRect(-31, -14, 60, 24, 8);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(124, 81, 51, 0.5)";
+  ctx.lineWidth = 2;
+  for (let i = -20; i <= 18; i += 13) {
+    ctx.beginPath();
+    ctx.moveTo(i, -12);
+    ctx.lineTo(i - 6, 8);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = "#7c5133";
+  ctx.lineWidth = 5;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(-38, -7);
+  ctx.quadraticCurveTo(0, -22, 39, -7);
+  ctx.stroke();
+  ctx.strokeStyle = "#f6d68a";
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+
+  ctx.fillStyle = "#d4433a";
+  ctx.strokeStyle = colors.ink;
+  ctx.lineWidth = 3.5;
+  ctx.beginPath();
+  ctx.moveTo(37, -16);
+  ctx.quadraticCurveTo(55, -32, 67, -10);
+  ctx.quadraticCurveTo(67, 8, 49, 11);
+  ctx.quadraticCurveTo(43, 0, 37, -16);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#2c9f98";
+  ctx.beginPath();
+  ctx.arc(50, -18, 8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#fff8e8";
+  ctx.beginPath();
+  ctx.arc(57, -12, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = colors.ink;
+  ctx.beginPath();
+  ctx.arc(58, -12, 2.1, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#f4b942";
+  ctx.beginPath();
+  ctx.moveTo(42, -28);
+  ctx.quadraticCurveTo(45, -42, 52, -30);
+  ctx.quadraticCurveTo(48, -29, 42, -28);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(55, -26);
+  ctx.quadraticCurveTo(64, -38, 65, -22);
+  ctx.quadraticCurveTo(60, -25, 55, -26);
+  ctx.fill();
+
+  ctx.fillStyle = "#f6d68a";
+  [-25, 0, 25].forEach((postX) => {
+    roundRect(postX - 4, -22, 8, 18, 4);
+    ctx.fill();
+  });
+
   ctx.restore();
 }
 
@@ -5344,9 +5734,18 @@ soundButton.addEventListener("click", () => {
 difficultyButtons.forEach((button) => {
   button.addEventListener("click", () => selectDifficulty(button.dataset.difficulty));
 });
+levelButtons.forEach((button) => {
+  button.addEventListener("click", () => selectLevel(button.dataset.level));
+});
 restartButton.addEventListener("click", () => {
   playSound("select", { force: true });
   resetGame();
+});
+window.addEventListener("keydown", (event) => {
+  const index = Number(event.key) - 1;
+  if (Number.isInteger(index) && index >= 0 && index < cardTypes.length) {
+    selectDefender(cardTypes[index]);
+  }
 });
 
 buildCards();
